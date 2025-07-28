@@ -19,7 +19,7 @@ const app = new Express();
  * Helper functions
  */
 function getAPIUrl(query = "") {
-  return API_URL + query + `&apiKey=${NEWS_API_KEY}`;
+  return API_URL + query + `&apikey=${NEWS_API_KEY}`;
 }
 
 app.use(Express.json());
@@ -47,47 +47,91 @@ app.get("/news", limiter, async (req, res, next) => {
     res
       .status(400)
       .send(
-        "missing required query param 'q'. Please call /help endpoint to learn more",
+        "missing required query param 'q'. Please call the /help endpoint to read the docs",
       );
-    next();
+    return next();
   }
 
-  if (max & searchIn) {
-    const recordKey = max + "_" + searchIn;
-    let result = this.db.get(recordKey);
+  if (q && searchIn) {
+    const recordKey = q + "_" + searchIn;
+    let result = db.get(recordKey);
+    console.log("cached result ", result);
     if (result) {
       res.send(result);
-      next();
+      return next();
     }
 
     try {
-      const res = await fetch(getAPIUrl());
-      console.log(res);
-      if (!res.ok) {
-        res.status(500).send("We were unable to obtain latest news");
-        console.error(res.body);
+      const fetchedRes = await fetch(getAPIUrl(`?q=${q}&in=${searchIn}`));
+      const data = await fetchedRes.json();
+
+      if (!fetchedRes.ok) {
+        console.error(data.errors);
+        res.status(500).send(data.errors);
+        return next();
       }
-      const data = await res.json();
 
-      res.send(data);
+      db.set(recordKey, data.articles);
+      res.status(200).send(data.articles);
+      return next();
     } catch (e) {
+      console.error(e);
       res.status(500).send("We were unable to obtain latest news");
+      return next();
     }
-  }
+  } else if (q && max) {
+    const recordKey = q + "_" + max;
+    let result = db.get(recordKey);
+    console.log("cached result ", result);
+    if (result) {
+      res.send(result);
+      return next();
+    }
 
-  return;
-  try {
-    const res = await fetch(getAPIUrl());
-    console.log(res);
-    if (!res.ok) {
+    try {
+      const fetchedRes = await fetch(getAPIUrl(`?q=${q}&max=${max}`));
+      const data = await fetchedRes.json();
+
+      if (!fetchedRes.ok) {
+        console.error(data.errors);
+        res.status(500).send(data.errors);
+        return next();
+      } else {
+        db.set(recordKey, data.articles);
+        res.status(200).send(data.articles);
+      }
+    } catch (e) {
+      console.error(e);
       res.status(500).send("We were unable to obtain latest news");
-      console.error(res.body);
+    } finally {
+      return next();
     }
-    const data = await res.json();
+  } else {
+    const recordKey = q;
+    let result = db.get(recordKey);
+    if (result) {
+      res.send(result);
+      return next();
+    }
 
-    res.send(data);
-  } catch (e) {
-    res.status(500).send("We were unable to obtain latest news");
+    try {
+      const fetchedRes = await fetch(getAPIUrl(`?q=${q}`));
+      const data = await fetchedRes.json();
+
+      if (!fetchedRes.ok) {
+        console.error(data.errors);
+        res.status(500).send(data.errors);
+        return next();
+      } else {
+        db.set(recordKey, data.articles);
+        res.status(200).send(data.articles);
+      }
+    } catch (e) {
+      console.error(e);
+      res.status(500).send("We were unable to obtain latest news");
+    } finally {
+      return next();
+    }
   }
 });
 
